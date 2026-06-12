@@ -15,17 +15,36 @@ STATS_DOC = "price_statistics/summary"
 USERS_COL = "users"
 
 
-def init_firestore() -> firestore.Client:
-    cred_json = os.environ.get("FIREBASE_CREDENTIALS")
-    if cred_json:
-        cred = credentials.Certificate(json.loads(cred_json))
-    else:
-        cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "firebase-credentials.json")
-        cred = credentials.Certificate(cred_path)
+def init_firestore():
 
-    if not firebase_admin._apps:
-        firebase_admin.initialize_app(cred)
-    return firestore.client()
+    try:
+
+        cred_json = os.environ.get(
+            "FIREBASE_SERVICE_ACCOUNT"
+        )
+
+        if cred_json:
+            cred = credentials.Certificate(
+                json.loads(cred_json)
+            )
+
+        else:
+            cred = credentials.Certificate(
+                "firebase-credentials.json"
+            )
+
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
+
+        print("Firestore Connected")
+
+        return firestore.client()
+
+    except Exception as e:
+
+        print(f"Firestore Error: {e}")
+
+        raise
 
 
 def get_current_price(db: firestore.Client) -> dict[str, Any] | None:
@@ -35,15 +54,18 @@ def get_current_price(db: firestore.Client) -> dict[str, Any] | None:
 
 def persist_if_changed(db: firestore.Client, rate: GoldRate) -> tuple[dict[str, Any] | None, bool]:
     old_price = get_current_price(db)
-    new_data = asdict(rate)
 
-    if old_price and int(old_price.get("gold22kt", 0)) == rate.gold22kt:
-        return old_price, False
+    if (
+    old_price
+    and int(old_price.get("gold22kt", 0)) == rate.gold22kt
+    and int(old_price.get("gold24kt", 0)) == rate.gold24kt
+):
+    return old_price, False
 
     current_payload = {
         "gold22kt": rate.gold22kt,
         "gold24kt": rate.gold24kt,
-        "lastUpdated": rate.fetched_at,
+        "lastUpdated": firestore.SERVER_TIMESTAMP,
         "source": rate.source,
         "location": rate.location,
         "sourceUpdatedAt": rate.source_updated_at,
@@ -51,7 +73,7 @@ def persist_if_changed(db: firestore.Client, rate: GoldRate) -> tuple[dict[str, 
     history_payload = {
         "gold22kt": rate.gold22kt,
         "gold24kt": rate.gold24kt,
-        "timestamp": rate.fetched_at,
+        "timestamp": firestore.SERVER_TIMESTAMP,
         "source": rate.source,
         "location": rate.location,
     }
@@ -75,13 +97,18 @@ def update_statistics(db: firestore.Client) -> None:
     now = datetime.now(IST)
 
     def change_over(hours: int) -> int:
-        cutoff = (now - timedelta(hours=hours)).isoformat()
-        window = [
-            int(entry["gold22kt"])
-            for entry in entries
-            if entry.get("timestamp", "") >= cutoff and entry.get("gold22kt") is not None
-        ]
-        return window[-1] - window[0] if len(window) >= 2 else 0
+    cutoff = now - timedelta(hours=hours)
+
+    window = []
+
+    for entry in entries:
+        ts = entry.get("timestamp")
+
+        if ts and hasattr(ts, "replace"):
+            if ts >= cutoff:
+                window.append(int(entry["gold22kt"]))
+
+    return window[-1] - window[0] if len(window) >= 2 else 0
 
     stats = {
         "highestPrice": max(prices),
