@@ -16,7 +16,16 @@ log = logging.getLogger("goldpulse")
 
 def main() -> None:
     db = init_firestore()
+    try:
     rate = fetch_gold_rate()
+
+except Exception as e:
+    log.exception(
+        "Gold scraping failed: %s",
+        e
+    )
+
+    return
     log.info(
         "Fetched Kalyan Pune rate: 22KT=Rs %s 24KT=Rs %s",
         f"{rate.gold22kt:,}",
@@ -28,7 +37,7 @@ def main() -> None:
         log.info("Price unchanged. Firestore write and FCM broadcast skipped.")
         return
 
-    if old_price:
+    if old_price is not None:
         send_price_change_notification(old_price, rate)
     evaluate_user_alerts(db, rate)
     log.info("Firestore current/history updated successfully.")
