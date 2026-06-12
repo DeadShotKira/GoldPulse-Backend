@@ -27,7 +27,7 @@ jobs:
           pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - run: playwright install chromium --with-deps
+      - run: playwright install chromium 
 
       - name: Run GoldPulse Monitor
         env:
